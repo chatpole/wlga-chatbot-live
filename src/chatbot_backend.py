@@ -243,7 +243,7 @@ Instructions:
 5. Do not mention sources or references in the answer
 """
         doc_response = client.chat.completions.create(
-            model="gpt-4",
+            model="gpt-4o-mini",
             messages=[{
                 "role": "system",
                 "content": "You are an LPG industry expert. Focus primarily on document information."
@@ -278,7 +278,7 @@ Give only new information that's not already covered in the document answer.
 Keep it very brief (max 2-3 lines).
 """
                 summary_response = client.chat.completions.create(
-                    model="gpt-4",
+                    model="gpt-4o-mini",
                     messages=[{"role": "user", "content": summary_prompt}]
                 )
                 google_summary = summary_response.choices[0].message.content.strip()
@@ -351,6 +351,7 @@ if __name__ == "__main__":
     print("✅ Chat engine initialized!")
     print("🚀 Starting the server on port 5000...")
     app.run(debug=False, host="0.0.0.0", port=5000)
+
 
 
 
