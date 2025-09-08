@@ -308,10 +308,23 @@ def detect_intent(user_query):
 #  --- Flask Setup ---
 app = Flask(__name__)
 CORS(app)
+load_dotenv()
+
+chat_engine = ChatEngine(
+        db_host=os.getenv("DB_HOST"),
+        db_name=os.getenv("DB_NAME"),
+        db_user=os.getenv("DB_USER"),
+        db_password=os.getenv("DB_PASSWORD"),
+        db_port=os.getenv("DB_PORT"),
+        table_name=os.getenv("TABLE_NAME")
+    )
+print("✅ Chat engine initialized!")
+
+
 
 @app.route("/chat", methods=["POST"])
 def chat_api():
-    data = request.get_json()
+    data = request.get_json(silent=True)
     query = data.get("query", "").strip()
     session_id = data.get("session_id", str(uuid.uuid4()))
 
@@ -334,23 +347,11 @@ def chat_api():
     return jsonify({"response": answer, "session_id": session_id})
 
 
-
-load_dotenv()  # Loads values from .env into environment variables
-
 if __name__ == "__main__":
-    chat_engine = ChatEngine(
-        db_host=os.getenv("DB_HOST"),
-        db_name=os.getenv("DB_NAME"),
-        db_user=os.getenv("DB_USER"),
-        db_password=os.getenv("DB_PASSWORD"),
-        db_port=os.getenv("DB_PORT"),
-        table_name=os.getenv("TABLE_NAME")
-    )
-
-        
-    print("✅ Chat engine initialized!")
+   
     print("🚀 Starting the server on port 5000...")
     app.run(debug=False, host="0.0.0.0", port=5000)
+
 
 
 
