@@ -167,29 +167,31 @@ def chat_with_bot(query, memory_context="", chat_engine=None):
     if query.lower().strip() in greetings:
         return "Hello! How can I assist you today?"
 
+    # 0) Check for an exact saved/cached answer in DB (fast path)
+    if chat_engine:
+        try:
+            saved = chat_engine.check_saved_answer(query)
+            if saved:
+                cached_answer, source_name = saved
+                # Return directly from cache — do not call OpenAI or Google.
+                return f"{cached_answer}\n\n(Source: {source_name})"
+        except Exception as e:
+            # Don't fail the whole flow if cache-check errors — log and continue.
+            logger.error(f"Error checking saved answer cache: {e}")
 
-    # Fetch context directly from DB
+    # 1) Fetch context directly from DB (nearest neighbor)
     document_context = ""
     if chat_engine:
-        row = chat_engine.fetch_context(chat_engine.embed_text(query))
-        if row and row[2].strip():   # only assign if real text exists
-            document_context = row[2].strip()
+        try:
+            row = chat_engine.fetch_context(chat_engine.embed_text(query))
+            if row and row[2] and row[2].strip():   # only assign if real text exists
+                document_context = row[2].strip()
+        except Exception as e:
+            logger.error(f"Error fetching context: {e}")
+            document_context = ""
 
-
-#         prompt = f"""
-# You are an AI assistant built by WLGA company.
-
-# If a user asks about your role, purpose, or how you can help — 
-# such as questions like "What can you do?" or "How can you assist me?" — 
-# you should reply with:
-
-# "I can assist you to know about WLGA company."
-
-# Now, answer the user's query below:
-# User: {query}
-# """
-#     else:
-        prompt = f"""
+    # Build the main prompt (keeps your existing instructions)
+    prompt = f"""
 Answer the user's question in a clear, helpful tone using the information below. If not found, use your own knowledge.
  You are a knowledgeable and helpful AI assistant.
 
@@ -216,15 +218,17 @@ User's question:
 
 Answer:
 """
-      
-    # Get answer primarily from documents
+
+    # If no document context is available, ask the user to rephrase / focus on LPG docs
+    if not document_context:
+        return ("I apologize, but I need to find relevant information in our LPG documents to answer "
+                "your question. Could you please rephrase your question to focus on LPG-related topics covered in our documents?")
+
+    # 2) Get a detailed answer primarily from documents
+    try:
         print(f"📝 Query: {query}")
         print(f"📚 Document context available: {bool(document_context)}")
-        
-        if not document_context:
-            return "I apologize, but I need to find relevant information in our LPG documents to answer your question. Could you please rephrase your question to focus on LPG-related topics covered in our documents?"
 
-        # First, get a detailed answer from documents
         doc_prompt = f"""
 You are an expert in LPG (Liquid Petroleum Gas) industry. Generate a comprehensive answer using PRIMARILY the document information provided.
 Focus 80% on the document content and only briefly supplement with general knowledge if necessary.
@@ -244,29 +248,30 @@ Instructions:
 """
         doc_response = client.chat.completions.create(
             model="gpt-4o-mini",
-            messages=[{
-                "role": "system",
-                "content": "You are an LPG industry expert. Focus primarily on document information."
-            },
-            {
-                "role": "user",
-                "content": doc_prompt
-            }]
+            messages=[
+                {"role": "system", "content": "You are an LPG industry expert. Focus primarily on document information."},
+                {"role": "user", "content": doc_prompt}
+            ]
         )
-        
+
         doc_answer = doc_response.choices[0].message.content.strip()
         doc_answer = clean_response(doc_answer)
         print(f"📘 Generated document-based answer: {len(doc_answer)} chars")
 
-        # Get minimal Google results to supplement
-        try:
-            print("🔍 Searching Google for supplementary info...")
-            google_results = search_google(f"LPG {query}")
-            print(f"🌐 Google results found: {bool(google_results)}")
-            
-            if google_results:
-                # Get a brief summary of Google results
-                summary_prompt = f"""
+    except Exception as e:
+        logger.error(f"Error generating document-based answer: {e}")
+        return "Sorry — I ran into an error while generating the answer."
+
+    # 3) Optionally supplement with Google results only if we DID NOT return from saved cache
+    # (At this point there's no saved cached answer, so it's safe to call Google)
+    try:
+        print("🔍 Searching Google for supplementary info...")
+        google_results = search_google(f"LPG {query}")
+        print(f"🌐 Google results found: {bool(google_results)}")
+
+        if google_results:
+            # Get a brief summary of Google results (only new info)
+            summary_prompt = f"""
 Summarize the most important additional information from these search results in 2-3 brief points.
 Current answer from documents:
 {doc_answer}
@@ -277,23 +282,24 @@ Search results:
 Give only new information that's not already covered in the document answer.
 Keep it very brief (max 2-3 lines).
 """
-                summary_response = client.chat.completions.create(
-                    model="gpt-4o-mini",
-                    messages=[{"role": "user", "content": summary_prompt}]
-                )
-                google_summary = summary_response.choices[0].message.content.strip()
-                
-                # Combine answers with clear separation
-                final_answer = f"{doc_answer}\n\nAdditional relevant information:\n{google_summary}\n\nSources for further reading:\n{google_results}"
-            else:
-                final_answer = doc_answer
-                
-            print(f"✅ Returning answer: {len(final_answer)} chars")
-            return final_answer
-            
-        except Exception as e:
-            print(f"❌ Error during Google search: {str(e)}")
-            return doc_answer  # Return the document-based answer if Google search fails
+            summary_response = client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[{"role": "user", "content": summary_prompt}]
+            )
+            google_summary = summary_response.choices[0].message.content.strip()
+
+            # Combine answers with clear separation
+            final_answer = f"{doc_answer}\n\nAdditional relevant information:\n{google_summary}\n\nSources for further reading:\n{google_results}"
+        else:
+            final_answer = doc_answer
+
+        print(f"✅ Returning answer: {len(final_answer)} chars")
+        return final_answer
+
+    except Exception as e:
+        print(f"❌ Error during Google search: {str(e)}")
+        return doc_answer  # Return the document-based answer if Google search fails
+
 # --- Intent Detection ---
 def detect_intent(user_query):
     clear_phrases = [
