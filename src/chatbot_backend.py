@@ -377,8 +377,19 @@ def health_check():
     })
 
 
+@app.route("/", methods=["GET"])
+def home():
+    """Basic root route"""
+    return jsonify({
+        "message": "Backend service running successfully!",
+        "status": "OK"
+    }), 200
+
+
+
 if __name__ == "__main__":
     logger.info("Starting WLGA Chatbot Backend...")
     logger.info("Flow: PostgreSQL DB check → OpenAI fallback")
     app.run(debug=False, host="0.0.0.0", port=8000)
+
 
