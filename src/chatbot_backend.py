@@ -386,16 +386,15 @@ def home():
     }), 200
 
 
-"""
+
 if __name__ == "__main__":
     logger.info("Starting WLGA Chatbot Backend...")
     logger.info("Flow: PostgreSQL DB check → OpenAI fallback")
     app.run(debug=False, host="0.0.0.0", port=8000)
-"""
 
-if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 8000))
-    uvicorn.run("chatbot_backend:app", host="0.0.0.0", port=port)
+
+
+
 
 
 
